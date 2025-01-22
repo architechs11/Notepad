@@ -6,12 +6,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.Timer;
 import java.util.TimerTask;
 import javax.swing.*;
+import javax.swing.undo.UndoManager;
 
 public class Notepad extends JFrame {
-    private JTabbedPane tabbedPane;
-    private JFileChooser fileChooser;
+    private final JTabbedPane tabbedPane;
+    private final JFileChooser fileChooser;
     private boolean isDarkMode = false;
-    private JMenuItem toggleDarkMode;
+    private final int defaultFontSize = 16;
+    private UndoManager undoManager;
 
     public Notepad() {
         setTitle("Notepad");
@@ -36,7 +38,7 @@ public class Notepad extends JFrame {
 
         // Add initial tab
         createNewTab();
-        
+
         // Add key bindings for shortcuts
         addKeyBindings();
 
@@ -78,16 +80,23 @@ public class Notepad extends JFrame {
 
         // Edit Menu
         JMenu editMenu = createCenteredMenu("Edit");
+        JMenuItem undo = new JMenuItem("Undo");
+        JMenuItem redo = new JMenuItem("Redo");
         JMenuItem cut = new JMenuItem("Cut");
         JMenuItem copy = new JMenuItem("Copy");
         JMenuItem paste = new JMenuItem("Paste");
         JMenuItem find = new JMenuItem("Find");
 
+        undo.addActionListener(e -> performUndo());
+        redo.addActionListener(e -> performRedo());
         cut.addActionListener(e -> getCurrentTextArea().cut());
         copy.addActionListener(e -> getCurrentTextArea().copy());
         paste.addActionListener(e -> getCurrentTextArea().paste());
         find.addActionListener(e -> findText());
 
+        editMenu.add(undo);
+        editMenu.add(redo);
+        editMenu.addSeparator();
         editMenu.add(cut);
         editMenu.add(copy);
         editMenu.add(paste);
@@ -96,29 +105,38 @@ public class Notepad extends JFrame {
 
         // View Menu
         JMenu viewMenu = createCenteredMenu("View");
-        toggleDarkMode = new JMenuItem("Switch to Dark Mode");
-        toggleDarkMode.addActionListener(e -> toggleDarkMode());
+        JMenuItem zoomIn = new JMenuItem("Zoom In");
+        JMenuItem zoomOut = new JMenuItem("Zoom Out");
+        JMenuItem resetZoom = new JMenuItem("Reset Zoom");
+        JMenuItem toggleDarkMode = new JMenuItem("Switch to Dark Mode");
         JMenuItem customTheme = new JMenuItem("Custom Theme");
+
+        zoomIn.addActionListener(e -> zoomText(2));
+        zoomOut.addActionListener(e -> zoomText(-2));
+        resetZoom.addActionListener(e -> resetZoom());
+        toggleDarkMode.addActionListener(e -> toggleDarkMode());
         customTheme.addActionListener(e -> customizeTheme());
 
+        viewMenu.add(zoomIn);
+        viewMenu.add(zoomOut);
+        viewMenu.add(resetZoom);
+        viewMenu.addSeparator();
         viewMenu.add(toggleDarkMode);
         viewMenu.add(customTheme);
 
-        // Tools Menu
-        JMenu toolsMenu = createCenteredMenu("Tools");
-        JMenuItem boldText = new JMenuItem("Bold Text");
-        boldText.addActionListener(e -> getCurrentTextArea().setFont(getCurrentTextArea().getFont().deriveFont(Font.BOLD)));
-        JMenuItem italicText = new JMenuItem("Italic Text");
-        italicText.addActionListener(e -> getCurrentTextArea().setFont(getCurrentTextArea().getFont().deriveFont(Font.ITALIC)));
+        // Tab Menu
+        JMenu tabMenu = createCenteredMenu("Tabs");
+        JMenuItem renameTab = new JMenuItem("Rename Tab");
 
-        toolsMenu.add(boldText);
-        toolsMenu.add(italicText);
+        renameTab.addActionListener(e -> renameCurrentTab());
+
+        tabMenu.add(renameTab);
 
         // Add menus to menu bar
         menuBar.add(fileMenu);
         menuBar.add(editMenu);
         menuBar.add(viewMenu);
-        menuBar.add(toolsMenu);
+        menuBar.add(tabMenu);
 
         setJMenuBar(menuBar);
     }
@@ -140,7 +158,9 @@ public class Notepad extends JFrame {
 
     private void createNewTab() {
         JTextArea textArea = new JTextArea();
-        textArea.setFont(new Font("Davish - Sans Serif", Font.PLAIN, 16));
+        textArea.setFont(new Font("Arial", Font.PLAIN, defaultFontSize));
+        undoManager = new UndoManager();
+        textArea.getDocument().addUndoableEditListener(undoManager);
 
         JPanel tabPanel = new JPanel(new BorderLayout());
         JScrollPane scrollPane = new JScrollPane(textArea);
@@ -148,9 +168,7 @@ public class Notepad extends JFrame {
 
         JPanel tabStatusBar = new JPanel(new BorderLayout());
         JLabel tabWordCountLabel = new JLabel("Word Count: 0");
-        tabWordCountLabel.setFont(new Font("Arial", Font.PLAIN, 14));
         JLabel lastEditedLabel = new JLabel("Last Edited: Never");
-        lastEditedLabel.setFont(new Font("Arial", Font.PLAIN, 14));
         tabStatusBar.add(tabWordCountLabel, BorderLayout.WEST);
         tabStatusBar.add(lastEditedLabel, BorderLayout.EAST);
         tabPanel.add(tabStatusBar, BorderLayout.SOUTH);
@@ -163,23 +181,47 @@ public class Notepad extends JFrame {
             }
         });
 
-        // Adding tab with close functionality
-        JPanel tabHeader = new JPanel(new BorderLayout());
-        JLabel tabLabel = new JLabel("Untitled");
-        JButton closeButton = new JButton("X");
-        closeButton.addActionListener(e -> closeTab(tabPanel));
-
-        tabHeader.add(tabLabel, BorderLayout.WEST);
-        tabHeader.add(closeButton, BorderLayout.EAST);
-
-        tabbedPane.addTab(null, tabPanel);
-        tabbedPane.setTabComponentAt(tabbedPane.indexOfComponent(tabPanel), tabHeader);
+        tabbedPane.addTab("Untitled", tabPanel);
         tabbedPane.setSelectedComponent(tabPanel);
     }
 
-    private void closeTab(JPanel tabPanel) {
-        if (tabbedPane.getTabCount() > 1) {
-            tabbedPane.remove(tabPanel);
+    private void renameCurrentTab() {
+        int selectedIndex = tabbedPane.getSelectedIndex();
+        if (selectedIndex != -1) {
+            String newTitle = JOptionPane.showInputDialog(this, "Enter new tab name:");
+            if (newTitle != null && !newTitle.trim().isEmpty()) {
+                tabbedPane.setTitleAt(selectedIndex, newTitle);
+            }
+        }
+    }
+
+    private void zoomText(int increment) {
+        JTextArea textArea = getCurrentTextArea();
+        if (textArea != null) {
+            Font currentFont = textArea.getFont();
+            int newSize = currentFont.getSize() + increment;
+            if (newSize >= 8 && newSize <= 72) { // Limit zoom range
+                textArea.setFont(new Font(currentFont.getFontName(), currentFont.getStyle(), newSize));
+            }
+        }
+    }
+
+    private void resetZoom() {
+        JTextArea textArea = getCurrentTextArea();
+        if (textArea != null) {
+            textArea.setFont(new Font("Arial", Font.PLAIN, defaultFontSize));
+        }
+    }
+
+    private void performUndo() {
+        if (undoManager.canUndo()) {
+            undoManager.undo();
+        }
+    }
+
+    private void performRedo() {
+        if (undoManager.canRedo()) {
+            undoManager.redo();
         }
     }
 
@@ -188,30 +230,27 @@ public class Notepad extends JFrame {
         if (option == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                JTextArea textArea = new JTextArea();
-                textArea.read(reader, null);
-                textArea.setFont(new Font("Davish - Sans Serif", Font.PLAIN, 16));
-                createNewTab();
-                JPanel tabPanel = (JPanel) tabbedPane.getSelectedComponent();
-                JScrollPane scrollPane = (JScrollPane) tabPanel.getComponent(0);
-                JTextArea currentTextArea = (JTextArea) scrollPane.getViewport().getView();
-                currentTextArea.setText(textArea.getText());
-                tabbedPane.setTitleAt(tabbedPane.getSelectedIndex(), file.getName());
+                JTextArea textArea = getCurrentTextArea();
+                if (textArea != null) {
+                    textArea.read(reader, null);
+                }
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Error opening file!", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Error opening file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
 
     private void saveFile() {
-        File file = new File(tabbedPane.getTitleAt(tabbedPane.getSelectedIndex()));
-        if (file == null) {
-            saveFileAs();
-        } else {
+        int selectedIndex = tabbedPane.getSelectedIndex();
+        if (selectedIndex >= 0) {
+            File file = new File("Untitled" + (selectedIndex + 1) + ".txt");
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                getCurrentTextArea().write(writer);
+                JTextArea textArea = getCurrentTextArea();
+                if (textArea != null) {
+                    textArea.write(writer);
+                }
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Error saving file!", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Error saving file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -221,11 +260,54 @@ public class Notepad extends JFrame {
         if (option == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                getCurrentTextArea().write(writer);
-                tabbedPane.setTitleAt(tabbedPane.getSelectedIndex(), file.getName());
+                JTextArea textArea = getCurrentTextArea();
+                if (textArea != null) {
+                    textArea.write(writer);
+                }
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Error saving file!", "Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Error saving file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    private void findText() {
+        String searchText = JOptionPane.showInputDialog(this, "Enter text to find:");
+        if (searchText != null) {
+            JTextArea textArea = getCurrentTextArea();
+            if (textArea != null) {
+                String content = textArea.getText();
+                int index = content.indexOf(searchText);
+                if (index >= 0) {
+                    textArea.select(index, index + searchText.length());
+                } else {
+                    JOptionPane.showMessageDialog(this, "Text not found!", "Find", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+        }
+    }
+
+    private void toggleDarkMode() {
+        isDarkMode = !isDarkMode;
+        JTextArea textArea = getCurrentTextArea();
+        if (textArea != null) {
+            if (isDarkMode) {
+                textArea.setBackground(Color.DARK_GRAY);
+                textArea.setForeground(Color.WHITE);
+            } else {
+                textArea.setBackground(Color.WHITE);
+                textArea.setForeground(Color.BLACK);
+            }
+        }
+    }
+
+    private void customizeTheme() {
+        JTextArea textArea = getCurrentTextArea();
+        if (textArea != null) {
+            Color bgColor = JColorChooser.showDialog(this, "Choose Background Color", textArea.getBackground());
+            Color fgColor = JColorChooser.showDialog(this, "Choose Text Color", textArea.getForeground());
+
+            if (bgColor != null) textArea.setBackground(bgColor);
+            if (fgColor != null) textArea.setForeground(fgColor);
         }
     }
 
@@ -240,59 +322,17 @@ public class Notepad extends JFrame {
         lastEditedLabel.setText("Last Edited: " + currentTime);
     }
 
-    private void findText() {
-        String searchText = JOptionPane.showInputDialog(this, "Enter text to find:");
-        if (searchText != null) {
-            String content = getCurrentTextArea().getText();
-            int index = content.indexOf(searchText);
-            if (index >= 0) {
-                getCurrentTextArea().select(index, index + searchText.length());
-            } else {
-                JOptionPane.showMessageDialog(this, "Text not found!", "Find", JOptionPane.INFORMATION_MESSAGE);
-            }
-        }
-    }
-
-    private void toggleDarkMode() {
-        isDarkMode = !isDarkMode;
-        if (isDarkMode) {
-            getCurrentTextArea().setBackground(Color.DARK_GRAY);
-            getCurrentTextArea().setForeground(Color.WHITE);
-            toggleDarkMode.setText("Switch to Light Mode");
-        } else {
-            getCurrentTextArea().setBackground(Color.WHITE);
-            getCurrentTextArea().setForeground(Color.BLACK);
-            toggleDarkMode.setText("Switch to Dark Mode");
-        }
-    }
-
-    private void customizeTheme() {
-        Color bgColor = JColorChooser.showDialog(this, "Choose Background Color", getCurrentTextArea().getBackground());
-        Color fgColor = JColorChooser.showDialog(this, "Choose Text Color", getCurrentTextArea().getForeground());
-
-        if (bgColor != null) getCurrentTextArea().setBackground(bgColor);
-        if (fgColor != null) getCurrentTextArea().setForeground(fgColor);
-    }
-
     private void autoSaveFeature() {
         Timer timer = new Timer(true);
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                File currentFile = new File(tabbedPane.getTitleAt(tabbedPane.getSelectedIndex()));
-                if (currentFile.exists()) {
-                    try (BufferedWriter writer = new BufferedWriter(new FileWriter(currentFile))) {
-                        getCurrentTextArea().write(writer);
-                    } catch (IOException ex) {
-                        System.err.println("Auto-save failed.");
-                    }
-                }
+                saveFile();
             }
         }, 30000, 30000); // Auto-save every 30 seconds
     }
 
     private void addKeyBindings() {
-        // Ctrl + N to open a new tab
         InputMap inputMap = getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap actionMap = getRootPane().getActionMap();
 
@@ -304,25 +344,39 @@ public class Notepad extends JFrame {
             }
         });
 
-        // Ctrl + Z to close the current tab
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "closeTab");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK), "closeTab");
         actionMap.put("closeTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                if (tabbedPane.getTabCount() > 1) {
-                    int selectedTabIndex = tabbedPane.getSelectedIndex();
-                    tabbedPane.removeTabAt(selectedTabIndex);
+                int selectedIndex = tabbedPane.getSelectedIndex();
+                if (selectedIndex != -1 && tabbedPane.getTabCount() > 1) {
+                    tabbedPane.removeTabAt(selectedIndex);
                 }
             }
         });
 
-        // Ctrl + Tab to switch between tabs
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "undo");
+        actionMap.put("undo", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                performUndo();
+            }
+        });
+
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK), "redo");
+        actionMap.put("redo", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                performRedo();
+            }
+        });
+
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.CTRL_DOWN_MASK), "switchTab");
         actionMap.put("switchTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                int selectedTabIndex = tabbedPane.getSelectedIndex();
-                int nextTabIndex = (selectedTabIndex + 1) % tabbedPane.getTabCount();
+                int selectedIndex = tabbedPane.getSelectedIndex();
+                int nextTabIndex = (selectedIndex + 1) % tabbedPane.getTabCount();
                 tabbedPane.setSelectedIndex(nextTabIndex);
             }
         });
